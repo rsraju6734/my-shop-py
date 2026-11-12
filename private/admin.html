@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin - My Shop</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 700px; margin: 20px auto; padding: 0 10px; }
+    input { padding: 8px; margin: 4px 0; width: 100%; box-sizing: border-box; }
+    button { padding: 8px 14px; margin: 4px 2px; cursor: pointer; }
+    .row { border: 1px solid #ccc; padding: 10px; margin: 8px 0; border-radius: 6px; }
+    .thumb { width: 100px; height: 100px; object-fit: cover; border-radius: 6px; border: 1px solid #ddd; display: block; margin: 6px 0; }
+    .noimg { width: 100px; height: 100px; background: #eee; display: flex; align-items: center; justify-content: center; color: #888; font-size: 12px; border-radius: 6px; margin: 6px 0; }
+  </style>
+</head>
+<body>
+  <h1>Admin Panel</h1>
+
+  <h3>Notun product add koro</h3>
+  <input id="name" placeholder="Product er naam">
+  <input id="price" type="number" placeholder="Dam (Taka)">
+  <input id="stock" type="number" placeholder="Stock koyta">
+  <label>Product er pic:</label>
+  <input id="img" type="file" accept="image/*" onchange="pickNew(this)">
+  <img id="preview" class="thumb" style="display:none">
+  <button onclick="addProduct()">Add koro</button>
+
+  <h3>Sob product</h3>
+  <div id="list"></div>
+
+  <script>
+    let newImage = null;
+    const editImages = {};
+
+    function esc(s) {
+      return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    // pic chhoto kore (max 800px) JPEG file banay
+    function resizeImage(file, maxSize = 800) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const img = new Image();
+          img.onload = () => {
+            const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.round(img.width * scale);
+            canvas.height = Math.round(img.height * scale);
+            canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+            canvas.toBlob(b => b ? resolve(b) : reject(), "image/jpeg", 0.8);
+          };
+          img.onerror = reject;
+          img.src = reader.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function pickNew(input) {
+      if (!input.files[0]) return;
+      newImage = await resizeImage(input.files[0]);
+      const p = document.getElementById("preview");
+      p.src = URL.createObjectURL(newImage);
+      p.style.display = "block";
+    }
+
+    async function pickEdit(input, id) {
+      if (!input.files[0]) return;
+      editImages[id] = await resizeImage(input.files[0]);
+      const t = document.getElementById("t" + id);
+      if (t) t.outerHTML = `<img id="t${id}" class="thumb" src="${URL.createObjectURL(editImages[id])}">`;
+    }
+
+    async function load() {
+      const res = await fetch("/api/products");
+      const products = await res.json();
+      document.getElementById("list").innerHTML = products.map(p => `
+        <div class="row">
+          ${p.image
+            ? `<img id="t${p.id}" class="thumb" src="${esc(p.image)}">`
+            : `<div id="t${p.id}" class="noimg">Pic nei</div>`}
+          <input type="file" accept="image/*" onchange="pickEdit(this, ${p.id})">
+          <input id="n${p.id}" value="${esc(p.name)}">
+          <input id="p${p.id}" type="number" value="${p.price}">
+          <input id="s${p.id}" type="number" value="${p.stock}">
+          <button onclick="updateProduct(${p.id})">Update</button>
+          <button onclick="deleteProduct(${p.id})">Delete</button>
+        </div>
+      `).join("");
+    }
+
+    async function addProduct() {
+      const name = document.getElementById("name").value;
+      const price = document.getElementById("price").value;
+      const stock = document.getElementById("stock").value;
+      if (!name || !price) { alert("Naam ar dam dao"); return; }
+
+      const fd = new FormData();
+      fd.append("name", name);
+      fd.append("price", price);
+      fd.append("stock", stock || 0);
+      if (newImage) fd.append("image", newImage, "photo.jpg");
+
+      const res = await fetch("/api/products", { method: "POST", body: fd });
+      if (!res.ok) { alert("Add hoy ni, abar chesta koro"); return; }
+
+      document.getElementById("name").value = "";
+      document.getElementById("price").value = "";
+      document.getElementById("stock").value = "";
+      document.getElementById("img").value = "";
+      document.getElementById("preview").style.display = "none";
+      newImage = null;
+      load();
+    }
+
+    async function updateProduct(id) {
+      const fd = new FormData();
+      fd.append("name", document.getElementById("n" + id).value);
+      fd.append("price", document.getElementById("p" + id).value);
+      fd.append("stock", document.getElementById("s" + id).value || 0);
+      if (editImages[id]) fd.append("image", editImages[id], "photo.jpg");
+
+      const res = await fetch("/api/products/" + id, { method: "PUT", body: fd });
+      if (res.ok) { delete editImages[id]; alert("Update hoyeche"); load(); }
+      else { alert("Update hoy ni, abar chesta koro"); }
+    }
+
+    async function deleteProduct(id) {
+      if (!confirm("Sotti delete korbe?")) return;
+      await fetch("/api/products/" + id, { method: "DELETE" });
+      load();
+    }
+
+    load();
+  </script>
+</body>
+</html>
